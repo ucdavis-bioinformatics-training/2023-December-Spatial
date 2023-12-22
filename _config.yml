@@ -1,0 +1,23 @@
+theme: jekyll-theme-minimal
+title: 'Advanced Topics in Single Cell RNA-Seq: Spatial Transcriptomics'
+show_downloads: True
+google_analytics: True
+navigation:
+  - title: Home
+    url: /
+
+  - heading: Support
+  - title: Schedule
+    url: base/schedule
+  - title: Slack
+    url: base/slack
+  - title: Zoom
+    url: base/zoom
+  - title: Scripts
+    url: software_scripts/scripts_links
+
+  - heading: Spatial Transcriptomics
+  - title: Generating Expression Matrix
+    url: data_reduction/Expression_Matrix
+  - title: Analysis in R
+    url: data_analysis/spatial_analysis
