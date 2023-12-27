@@ -1,23 +1,24 @@
 #!/bin/bash
 #
-#SBATCH --time=0-02:00:00  # days-hours:minutes:seconds
+#SBATCH --time=0-2:00:00  # days-hours:minutes:seconds
 #SBATCH --job-name=spaceranger  # Job name
-#SBATCH --array=1-4 # lines in design.tsv
+#SBATCH --array=1-2 # samples to run (reads lines in design.tsv)
 #SBATCH --nodes=1
 #SBATCH --ntasks=8 # Number of cores
-#SBATCH --mem=64000 # Memory pool for all cores (see also --mem-per-cpu)
+#SBATCH --mem=16G # Memory pool for all cores (see also --mem-per-cpu)
 #SBATCH --account=workshop
-#SBATCH --reservation=scworkshop
 #SBATCH --output=slurmout/spaceranger-count-%A_%a.out # File to which STDOUT will be written
 #SBATCH --error=slurmout/spaceranger-count-%A_%a.err # File to which STDERR will be written
 #SBATCH --mail-type=END # Type of email notification- BEGIN,END,FAIL,ALL
-#SBATCH --mail-user=email@email.com # Email to which notifications will be sent
+#SBATCH --mail-user=user@domain.com # Email to which notifications will be sent
 
-
-project=/share/workshop/spatial_workshop/$USER
+workshop=/share/workshop/Spatial_Workshop
+export PATH=${workshop}/Software/spaceranger-2.1.1:$PATH
+transcriptome=${workshop}/Reference/refdata-gex-mm10-2020-A
+project=${workshop}/$USER
 fastqs=${project}/00-RawData
 outdir=${project}/01-Spaceranger
-transcriptome=${project}/refdata-gex-mm10-2020-A
+metadata=`sed "${SLURM_ARRAY_TASK_ID}q;d" ${project}/design.tsv`
 sample=`sed "${SLURM_ARRAY_TASK_ID}q;d" ${project}/design.tsv | cut -f1`
 image=`sed "${SLURM_ARRAY_TASK_ID}q;d" ${project}/design.tsv | cut -f2`
 serial=`sed "${SLURM_ARRAY_TASK_ID}q;d" ${project}/design.tsv | cut -f3`
@@ -25,7 +26,7 @@ area=`sed "${SLURM_ARRAY_TASK_ID}q;d" ${project}/design.tsv | cut -f4`
 
 start=`date +%s`
 
-[[ -d ${outdir} ]] || mkdir ${outdir}
+mkdir -p ${outdir}
 
 echo $HOSTNAME > ${outdir}/${sample}.log.out
 ulimit -n 16000
@@ -50,10 +51,10 @@ call="spaceranger count \
 >> ${outdir}/${sample}.log.out \
 2> ${outdir}/${sample}.log.err"
 
-export PATH=/share/workshop/spatial_workshop/software/spaceranger-2.0.0:$PATH
 echo $call >> ${outdir}/${sample}.log.out
 
 cd $outdir
+
 eval $call
 
 end=`date +%s`

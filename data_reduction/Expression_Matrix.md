@@ -43,11 +43,10 @@ For an in-depth explanation of Space Ranger methods, visit the [10x Genomics doc
 Set up your directory:
 
 ```bash
-mkdir -p /share/workshop/spatial_workshop/$USER/scripts/slurmout
-cd /share/workshop/spatial_workshop/$USER/
-ln -s ../data 00-RawData
-ln -s ../refdata-gex-mm10-2020-A .
-cp ../scripts/* scripts/
+mkdir -p /share/workshop/Spatial_Workshop/$USER/scripts/slurmout
+cd /share/workshop/Spatial_Workshop/$USER/
+ln -s ../Data 00-RawData
+cp ../Scripts/* scripts/
 ```
 
 ## Input
@@ -56,9 +55,8 @@ Space Ranger requires sample IDs, the path to fastq files, a brightfield images,
 ```bash
 V1_Mouse_Brain_Sagittal_Anterior_Section_1	V1_Mouse_Brain_Sagittal_Anterior_image.tif	V19L29-035	B1
 V1_Mouse_Brain_Sagittal_Posterior_Section_1	V1_Mouse_Brain_Sagittal_Posterior_image.tif	V19L29-035	A1
-V1_Mouse_Brain_Sagittal_Anterior_Section_2	V1_Mouse_Brain_Sagittal_Anterior_Section_2_image.tif	V19L29-035	D1
-V1_Mouse_Brain_Sagittal_Posterior_Section_2	V1_Mouse_Brain_Sagittal_Posterior_Section_2_image.tif	V19L29-035	C1
 ```
+Some elements of this metadata sheet can be pieced together from the filenames; however, the slide serial number and capture area corresponding to each image were not encoded in the filename. These must be looked up from records made at the time of imaging.
 
 This file will be parsed by the 01-spaceranger.slurm script, and the fields provided as arguments to spaceranger count. Take a few minutes to examine the arguments to Space Ranger, the content of the input files (both fastq and image).
 
@@ -137,6 +135,6 @@ If a fluorescent image is provided with the --darkimage argument, a barcode_fluo
 Before logging out of tadpole, create a directory for the more computationally intensive portions of the R analysis.
 
 ```bash
-mkdir -p /share/workshop/spatial_workshop/$USER/02-Seurat
+mkdir -p /share/workshop/Spatial_Workshop/$USER/02-Seurat
 ```
 Download the R markdown document for the analysis portion of the course.
