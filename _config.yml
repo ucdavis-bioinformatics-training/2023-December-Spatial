@@ -7,12 +7,6 @@ navigation:
     url: /
 
   - heading: Support
-  - title: Schedule
-    url: base/schedule
-  - title: Slack
-    url: base/slack
-  - title: Zoom
-    url: base/zoom
   - title: Scripts
     url: software_scripts/scripts_links
 
