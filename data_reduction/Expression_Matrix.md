@@ -79,8 +79,8 @@ Two matrices are produced by each Space Ranger run: the raw and the filtered fea
 
 | Type	|		| Description |
 |:----- |:---		|:------ |
-| raw_feature_bc_matrix.h5	| | gene-barcode matrix	containing every whitelisted barcode with at least 1 read |
-| filtered_feature_bc_matrix.h5 | | gene-barcode matrix containing only tissue-associated barcodes |
+| Raw feature barcode matrix	| | gene-barcode matrix	containing every whitelisted barcode with at least 1 read |
+| Filtered feature barcode matrix | | gene-barcode matrix containing only tissue-associated barcodes |
 
 These two matrices are each provided in two formats.
 
@@ -132,9 +132,4 @@ If a fluorescent image is provided with the --darkimage argument, a barcode_fluo
 
 ## Prepare for R analysis
 
-Before logging out of tadpole, create a directory for the more computationally intensive portions of the R analysis.
-
-```bash
-mkdir -p /share/workshop/Spatial_Workshop/$USER/02-Seurat
-```
 Download the R markdown document for the analysis portion of the course.
