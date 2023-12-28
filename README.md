@@ -1,6 +1,6 @@
 All documentation for the workshop is best viewed from the github.io pages. **If you click the link below, and nothing happens, you are already looking at the documentation page.**
 
-[Documentation](https://ucdavis-bioinformatics-training.github.io/2023-December-Spatial-Transcriptomics/)
+[Documentation](https://ucdavis-bioinformatics-training.github.io/2023-December-Spatial/)
 
 Contact - UC Davis Bioinformatics Core, [training.bioinformatics@ucdavis.edu](mailto:training.bioinformatics@ucdavis.edu)
 
