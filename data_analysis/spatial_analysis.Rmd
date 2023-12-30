@@ -19,11 +19,11 @@ if (!any(rownames(installed.packages()) == "knitr")){
 if (!any(rownames(installed.packages()) == "Seurat")){
   BiocManager::install("Seurat")
 }
+if (!any(rownames(installed.packages()) == "Rfast2")){
+  BiocManager::install("Rfast2")
+}
 if (!any(rownames(installed.packages()) == "hdf5r")){
   BiocManager::install("hdf5r")
-}
-if (!any(rownames(installed.packages()) == "harmony")){
-  BiocManager::install("harmony")
 }
 if (!any(rownames(installed.packages()) == "Matrix")){
   BiocManager::install("Matrix")
@@ -39,7 +39,6 @@ if (!any(rownames(installed.packages()) == "patchwork")){
 }
 library(knitr)
 library(Seurat)
-library(harmony)
 library(ggplot2)
 library(viridis)
 library(patchwork)
@@ -47,56 +46,54 @@ library(patchwork)
 
 # Experiment set-up
 
-While we don't have the resources available to complete all of the Space Ranger alignments for each sample during the workshop, we hope you will take the opportunity to re-run Space Ranger on your own. Until then, you can download the output from tadpole with the command below. Don't forget to replace "username" with your username!
+While we don't have the resources available to complete all of the Space Ranger alignments for each sample during the workshop, we hope you will take the opportunity to re-run Space Ranger on your own. Until then, you can download the output from tadpole to your working directory with the code below. I suggest copying the commands one at a time into a working terminal (e.g. the "Terminal" tab of RStudio) instead of running the chunk. Don't forget to replace "username" with your username!
 
 ```{bash, download_h5, eval=FALSE}
-scp -r hslyman@tadpole.genomecenter.ucdavis.edu:/share/workshop/spatial_workshop/data_analysis/data .
+scp username@tadpole.genomecenter.ucdavis.edu:/share/workshop/Spatial_Workshop/Downloads/data.tar.gz .
+tar -xzvf data.tar.gz
 ```
 
-The data directory downloaded by this command contains one directory for each sample with the necessary output files from Space Ranger. To replicate this structure, you could simply rename the "outs" directory with the sample name.
+The data directory downloaded by this command contains one directory for each sample with the necessary output files from Space Ranger. To replicate this structure, you could simply rename the "outs" directory with the sample name. The design.tsv file used to run Space Ranger has been copied to the data directory as well, along with a reference expression data set we will make use of later in the analysis.
 
 ```{r, setup}
+set.seed(1234)
 project.name <- "Mouse Brain Sagittal Sections"
 dataset.loc <- "data/"
-design <- read.delim(paste0(dataset.loc, "design.tsv"))
+design <- read.delim(paste0(dataset.loc, "design.tsv"),
+                     header = FALSE,
+                     col.names = c("sample", "image", "slide", "capture.area"))
 
-experiment.slices <- lapply(design$sample, function(sample){
+experiment.slices <- lapply(c(1:dim(design)[1]), function(i){
   # read in image file
-  image = Read10X_Image(paste0(dataset.loc, sample, "/outs/spatial"))
+  image = Read10X_Image(paste0(dataset.loc, design$sample[i], "/outs/spatial"))
   # create Seurat object with "Spatial" assay
-  sce = Load10X_Spatial(paste0(dataset.loc, sample, "/outs"),
+  sce = Load10X_Spatial(paste0(dataset.loc, design$sample[i], "/outs"),
                         filename = "filtered_feature_bc_matrix.h5",
                         assay = "Spatial",
-                        slice = sample,
+                        slice = design$sample[i],
                         filter.matrix = TRUE,
                         to.upper = FALSE,
                         image = image)
-  sce = SetIdent(sce, value = sample)
+  sce$orig.ident = design$sample[i]
+  # add slide serial number to metadata
+  sce = AddMetaData(sce, metadata = design$slide[i], col.name = "slide")
+  # add capture area to metadata
+  sce = AddMetaData(sce, metadata = design$capture.area[i], col.name = "capture.area")
+  # create shorter sample label for visualization
+  sce = AddMetaData(sce, metadata = sub("Section_", "", sub("V1_Mouse_Brain_Sagittal_", "", design$sample[i])), col.name = "sample.ident")
+  ## rename image to match
+  names(sce@images) = sub("Section_", "", sub("V1_Mouse_Brain_Sagittal_", "", design$sample[i]))
   # append sample name to cell barcode
-  RenameCells(sce, new.names = paste(sapply(strsplit(Cells(sce), split = "-"), "[[", 1), sample, sep = "-"))
+  RenameCells(sce, new.names = paste(sapply(strsplit(Cells(sce), split = "-"), "[[", 1), design$sample[i], sep = "-"))
   })
+
 # merge matrices into a single object for QC, normalization, scaling, etc
 experiment.merged <- merge(experiment.slices[[1]], experiment.slices[2:4])
-# add design metadata
-rownames(design) <- design$sample
-sample.ident <- sapply(strsplit(Cells(experiment.merged), split = "-"), "[[", 2)
-slide <- design[sample.ident, "slide"]
-capture.area <- design[sample.ident, "capture.area"]
-experiment.merged <- AddMetaData(experiment.merged,
-                                 metadata = sample.ident,
-                                 col.name = "sample.ident")
-experiment.merged <- AddMetaData(experiment.merged,
-                                 metadata = slide,
-                                 col.name = "slide")
-experiment.merged <- AddMetaData(experiment.merged,
-                                 metadata = capture.area,
-                                 col.name = "capture.area")
-# rename samples to create shorter labels for visualizations
-experiment.merged$orig.ident <- 
-gsub("Section_", "", gsub("V1_Mouse_Brain_Sagittal_", "", Idents(experiment.merged)))
-names(experiment.merged@images) <- gsub("Section_", "", gsub("V1_Mouse_Brain_Sagittal_", "", names(experiment.merged@images)))
-# slices object will be used only for FindSpatiallyVariableFeatures
-rm(project.name, experiment.slices, sample.ident, slide, capture.area)
+experiment.merged <- JoinLayers(experiment.merged)
+
+#tidy workspace
+rm(experiment.slices)
+
 experiment.merged
 ```
 
@@ -124,7 +121,7 @@ SpatialFeaturePlot(experiment.merged, "percent.mito")
 The legends and titles of figures can become compressed as the number of images Seurat is tiling increases. To view a single slice, use the "images" argument of the SpatialFeaturePlot function.
 
 ```{r, per_spot_vis_single}
-SpatialFeaturePlot(experiment.merged, "percent.mito", images = c("Posterior1", "Posterior2"))
+SpatialFeaturePlot(experiment.merged, "percent.mito", images = c("Posterior_1", "Posterior_2"))
 ```
 
 ## Ridge plots
@@ -132,17 +129,17 @@ SpatialFeaturePlot(experiment.merged, "percent.mito", images = c("Posterior1", "
 ```{r, RidgePlot}
 RidgePlot(experiment.merged,
           features = "nCount_Spatial",
-          group.by = "orig.ident") +
+          group.by = "sample.ident") +
   guides(fill = "none") +
   scale_fill_viridis_d()
 RidgePlot(experiment.merged,
           features = "nFeature_Spatial",
-          group.by = "orig.ident") +
+          group.by = "sample.ident") +
   guides(fill = "none") +
   scale_fill_viridis_d()
 RidgePlot(experiment.merged,
           features = "percent.mito",
-          group.by = "orig.ident") +
+          group.by = "sample.ident") +
   guides(fill = "none") +
   scale_fill_viridis_d()
 ```
@@ -153,13 +150,13 @@ RidgePlot(experiment.merged,
 FeatureScatter(experiment.merged,
                feature1 = "nCount_Spatial",
                feature2 = "nFeature_Spatial",
-               group.by = "orig.ident",
+               group.by = "sample.ident",
                shuffle = TRUE) +
   scale_color_viridis_d()
 FeatureScatter(experiment.merged,
                feature1 = "nCount_Spatial",
                feature2 = "percent.mito",
-               group.by = "orig.ident",
+               group.by = "sample.ident",
                shuffle = TRUE) +
   scale_color_viridis_d()
 ```
@@ -177,154 +174,94 @@ experiment.merged
 experiment.merged <- subset(experiment.merged, nFeature_Spatial >= 200)
 experiment.merged
 ```
+As only a small number of spots are removed, we will not reproduce the QC plots using the filtered data.
 
 # Analysis
 
-```{r, SCT_PCA_UMAP}
-# transform
+## Transform
+```{r, SCT}
 experiment.merged <- SCTransform(experiment.merged,
                                  assay = "Spatial",
                                  verbose = FALSE)
-# PCA
+```
+
+## PCA
+```{r, PCA}
 experiment.merged <- RunPCA(experiment.merged,
                             assay = "SCT",
                             npcs = 50,
                             verbose = FALSE)
-# UMAP
+```
+
+## UMAP
+```{r, UMAP}
 experiment.merged <- RunUMAP(experiment.merged,
                              reduction = "pca",
                              dims = 1:30,
                              verbose = FALSE)
 DimPlot(experiment.merged,
         reduction = "umap",
-        group.by = "orig.ident",
+        group.by = "sample.ident",
         shuffle = TRUE) +
   scale_color_viridis_d()
+
+saveRDS(experiment.merged, file = "experiment.merged_UMAP.rds")
 ```
 
-## Prepare for detection of spatially variable genes
+## Integration
 
-Spatially variable features are genes for which the spatial coordinates (i.e. location within the tissue) of spots explains expression level. In a layered tissue like the mouse brain samples we are using, spatial coordinates correspond closely to tissue structures and cell types. In other tissues, this may not be the case.
+In this experiment, all four slices were located on the same slide, eliminating the most prominent source of batch variation. In larger Visium experiments, this may not be possible. When samples are spread across two or more slides, the effect of slide to slide variation can be mitigated with integration.
 
-Seurat's FindSpatiallyVariableFeatures function takes a very long time to run. In order to speed up the process, we will divide our merged object by slice, save each slice as a separate object, and run the function in parallel on the cluster while we continue with the rest of the data analysis.
-
-```{r, prepareSpatiallyVariable}
-# split object
-experiment.slices <- SplitObject(experiment.merged, split.by = "orig.ident")
-# remove extra images
-experiment.slices <- lapply(experiment.slices, function(sce) {
-  sce@images[names(sce@images) != sce$orig.ident[1]] = NULL
-  sce
-})
-
-# save objects for submission to slurm
-lapply(names(experiment.slices), function(sample){
-  saveRDS(experiment.slices[[sample]], paste0(sample, ".rds"))
-})
-```
-
-Upload the RDS objects to tadpole.
-
-```{bash, upload_rds, eval=FALSE}
-scp *.rds username@tadpole.genomecenter.ucdavis.edu:/share/workshop/spatial_workshop/username/02-Seurat/
-```
-
-Then **on the cluster**, run the following:
-
-```{bash, slurm, eval=FALSE}
-cd /share/workshop/spatial_workshop/$USER/scripts
-sbatch 02-Seurat.slurm
-```
-
-The R code below is contained in the script FindSpatiallyVariable.R, which is run by 02-Seurat.slurm. Do not run this code on your laptop during the workshop, as it will take a long time to complete. Instead, launch a batch job on the cluster, then proceed to the next section.
-
-```{r, FindSpatiallyVariable, eval=FALSE}
-# set sample
-sample <- commandArgs(trailingOnly=TRUE)[1]
-# read data
-sce <- readRDS(paste0("../02-Seurat/", sample, ".rds"))
-# identify spatially variable features
-sce <- FindSpatiallyVariableFeatures(sce, assay = "SCT", features = VariableFeatures(sce), selection.method = "markvariogram")
-# save object
-saveRDS(sce, paste0("../02-Seurat/", sample, "_spatiallyVariableFeatures.rds"))
-```
-
-## Batch effect correction with RunHarmony
-
-In this experiment, all four slices were located on the same slide, eliminating the most prominent source of batch variation. In larger Visium experiments, this may not be possible. When samples are spread across two or more slides, the effect of slide to slide variation can be mitigated with Harmony batch correction.
-
-This code is provided as an example. For the remainder of the workshop, the uncorrected data will be used.
+This code is provided as an example. For the remainder of the workshop, the un-integrated data will be used.
 
 ```{r, harmony}
-experiment.harmony <- RunHarmony(experiment.merged,
-                                group.by.vars = "orig.ident", # for real batch correction use "slide"
-                                assay.use = "SCT",
-                                verbose = FALSE)
+experiment.harmony <- experiment.merged
+DefaultAssay(experiment.harmony) <- "Spatial"
+experiment.harmony@assays$SCT <- NULL
+experiment.harmony@assays$Spatial <- split(experiment.harmony@assays$Spatial,
+                                           f = experiment.harmony$sample.ident) # for real batch correction, use "slide"
+experiment.harmony <- NormalizeData(experiment.harmony)
+use.features <- rownames(experiment.merged)[rowSums(experiment.merged@assays$Spatial@layers$counts) >= 1]
+experiment.harmony <- ScaleData(experiment.harmony, features = use.features)
+experiment.harmony <- RunPCA(experiment.harmony, features = use.features)
+experiment.harmony <- IntegrateLayers(object = experiment.harmony,
+                                      method = "HarmonyIntegration",
+                                      orig.reduction = "pca",
+                                      new.reduction = "harmony",
+                                      features = use.features,
+                                      verbose = FALSE)
 experiment.harmony <- RunUMAP(experiment.harmony,
-                             reduction = "harmony",
-                             dims = 1:50,
-                             verbose = FALSE)
-DimPlot(experiment.harmony,
-        reduction = "umap",
-        group.by = "orig.ident",
-        shuffle = TRUE) +
-  scale_color_viridis_d()
-DimPlot(experiment.merged,
-        reduction = "umap",
-        group.by = "orig.ident",
-        shuffle = TRUE) +
-  scale_color_viridis_d()
-rm(experiment.harmony)
+                              reduction = "harmony",
+                              dims = 1:50,
+                              verbose = FALSE)
+p1 <- DimPlot(experiment.harmony,
+              reduction = "umap",
+              group.by = "sample.ident",
+              shuffle = TRUE) +
+  scale_color_viridis_d() +
+  ggtitle("Integrated")
+p2 <- DimPlot(experiment.merged,
+              reduction = "umap",
+              group.by = "sample.ident",
+              shuffle = TRUE) +
+  scale_color_viridis_d() +
+  ggtitle("Uncorrected")
+p1 + p2
+rm(use.features, experiment.harmony, p1, p2)
 ```
+
+Clustering and visualizations may be performed on the integrated data, but for differential expression analysis, the layers should be re-joined, and the uncorrected data used.
 
 Running Harmony does not appear to have altered the UMAP much. Though it has changed, the overall relationship between points is quite similar before and after batch correction. For an example of Harmony results demonstrating a true batch correction, see [this 10x-provided vignette](https://www.10xgenomics.com/resources/analysis-guides/correcting-batch-effects-in-visium-data).
 
-## Cell type prediction and "deconvolution"
-
-Each spot on a Visium slide may incorporate one or more cell types, depending on the placement. Instead of attempting to assign a single cell type to each spot, the Seurat integration method calculates a prediction score for each cell type based on the expression profiles from a single cell dataset.
-
-The Allen Brain Atlas has a comprehensive collection of [publicly available single cell data sets](https://portal.brain-map.org/atlases-and-data/rnaseq). For this experiment, we have selected a small number of cells corresponding to cell types present in the slices. This subsetting was necessary in order to create a reference set that will run quickly with limited resources. 
-
-```{r, atlas}
-atlas <- readRDS(paste(dataset.loc, "allen_subset_atlas.rds", sep = "/"))
-atlas <- SCTransform(atlas, verbose = FALSE)
-atlas <- RunPCA(atlas, verbose = FALSE)
-atlas <- RunUMAP(atlas, dims = 1:30, verbose = FALSE)
-anchors <- FindTransferAnchors(reference = atlas,
-                               query = experiment.merged,
-                               normalization.method = "SCT")
-predictions <- TransferData(anchorset = anchors,
-                            refdata = atlas$cell_type_alias_label,
-                            prediction.assay = TRUE,
-                            weight.reduction = experiment.merged[["pca"]],
-                            dims = 1:30)
-experiment.merged[["predictions"]] <- predictions
-
-cell.types <- rownames(GetAssayData(experiment.merged, assay = "predictions"))
-cell.types
-# visualize cell type predictions on slices
-lapply(cell.types[c(1, 7, 19, 25, 26, 28, 32)], function(id){
-  SpatialFeaturePlot(experiment.merged, id)
-})
-rm(atlas, anchors, predictions)
-```
-
-Take a few minutes to explore the results of the cell type prediction. A graphical view of the Allen Atlas is available [here](https://celltypes.brain-map.org/rnaseq/mouse_ctx-hpf_10x?selectedVisualization=Heatmap&colorByFeature=Cell+Type&colorByFeatureValue=Gad1).
-
 ## Clustering
 
-If a reference single cell experiment is incomplete, not available, or does not offer sufficient detail, unsupervised clustering provides an alternative method of grouping spots together into experimentally relevant units.
-
-Clustering in a spatial experiment is performed in the same way as clustering in a single cell experiment. The following code produces clusters at a series of resolutions. An appropriate clustering resolution for an experiment is one that groups the spots into usable, relevant clusters. Clusters may be merged or broken down into higher-resolution components as needed.
-
-For this experiment, the FindNeighbors function is using the PCA as input. If batch correction were necessary in this experiment, we would use "harmony" as the reduction argument instead.
-
-```{r, FindClusters}
+```{r, cluster}
 experiment.merged <- FindNeighbors(experiment.merged,
                                    reduction = "pca",
                                    verbose = FALSE)
 experiment.merged <- FindClusters(experiment.merged,
-                                  resolution = seq(0.2, 1, 0.2),
+                                  resolution = seq(from = 0.15, to = 0.6, by = 0.15),
                                   verbose = FALSE)
 lapply(grep("snn", colnames(experiment.merged@meta.data), value = TRUE),
        function(res){
@@ -334,101 +271,65 @@ lapply(grep("snn", colnames(experiment.merged@meta.data), value = TRUE),
                  shuffle = TRUE) +
            scale_color_viridis_d(option = "turbo")
        })
-```
-
-In some cases, the behavior of the visualization functions in a multi-slice merged object results in very small or otherwise illegible images. To get around this, simply split the merged object by slice before visualizing.
-
-```{r, vis_cluster_slice}
-# merged object visualization is too small
+# merged object visualization is too small, plus color scale change applies only to final image
 SpatialDimPlot(experiment.merged,
-               group.by = "SCT_snn_res.0.2") +
+               group.by = "SCT_snn_res.0.3") +
   scale_fill_viridis_d(option = "turbo")
-# split object
-experiment.slices <- SplitObject(experiment.merged, split.by = "orig.ident")
+# create palette
+cluster.palette <- viridis(length(levels(experiment.merged$SCT_snn_res.0.3)), option = "turbo")
+names(cluster.palette) <- levels(experiment.merged$SCT_snn_res.0.3)
+# lapply to plot each slice individually
+p <- lapply(names(experiment.merged@images), function(image){
+  SpatialDimPlot(experiment.merged,
+                 group.by = "SCT_snn_res.0.3",
+                 images = c(image)) +
+    scale_fill_manual(values = cluster.palette) +
+    ggtitle(paste(image))
+})
+p[[1]] + p[[3]]
+p[[2]] + p[[4]]
+rm(p)
+# save object
+saveRDS(experiment.merged, "experiment.merged_clusters.rds")
+```
+
+## Spatially variable genes
+
+Spatially variable features are genes for which the spatial coordinates (i.e. location within the tissue) of spots explains expression level. In a layered tissue like the mouse brain samples we are using, spatial coordinates correspond closely to tissue structures and cell types. In other tissues, this may not be the case.
+
+FindSpatiallyVariableFeatures should only be run on spots belonging to the same slice, as calculating spatial variability across discontiguous tissue will produce artifacts and errors. Expression profiles vary widely across the mouse brain sagittal slices used in this experiment. To identify variation of interest (and run the algorithm in a timely manner), we can select one or more groups of spots corresponding to anatomical structures to interrogate for spatially variable features.
+
+Users are reporting issues with Seurat5's FindSpatiallVariableFeatures() function, so we will be reverting to Seurat version 4 for this section of the analysis. In order to avoid managing two installations of Seurat in the same session, we will run Seurat 4 on tadpole.
+
+```{r, SpatiallyVariable.1}
+# subset object to slice and cluster of interest
+anterior1.cluster3 <- subset(experiment.merged, sample.ident == "Anterior_1" & SCT_snn_res.0.3 == "3")
 # remove extra images
-experiment.slices <- lapply(experiment.slices, function(sce) {
-  sce@images[names(sce@images) != sce$orig.ident[1]] = NULL
-  sce
-})
-# visualize on slice
-## palette is unstable if not all clusters are present on each slice
-res.0.2.palette <- viridis(length(levels(experiment.merged$SCT_snn_res.0.2)),
-                           option = "turbo")
-names(res.0.2.palette) <- levels(experiment.merged$SCT_snn_res.0.2)
-lapply(experiment.slices, function(slice) {
-  SpatialDimPlot(slice,
-                 group.by = "SCT_snn_res.0.2",
-                 label = TRUE,
-                 label.size = 3) +
-    scale_fill_manual(values = res.0.2.palette) +
-    guides(fill = "none")
-})
-rm(experiment.slices)
+anterior1.cluster3@images[2:4] <- NULL
+# save object
+saveRDS(anterior1.cluster3, file = "anterior1_cluster3.rds")
 ```
 
-Once clustering is complete, the cluster identities at each resolution are available as categorical variables in the metadata table. The code below visualizes the relationship between cluster membership and cell type prediction scores.
-
-```{r, vis_cluster_celltype}
-lapply(cell.types[c(1, 7, 19, 25, 26, 28, 32)], function(id){
-  VlnPlot(experiment.merged,
-          features = id,
-          group.by = "SCT_snn_res.0.2",
-          pt.size = 0) +
-    scale_fill_viridis_d(option = "turbo") +
-    guides(fill = "none") +
-    labs(x = "Cluster",
-         y = "Prediction Score",
-         title = sub("predictionscoreid_", "", id))
-})
+Transfer the saved object to the tadpole. Don't forget to change "username" to your username. You may need to paste the command below into a new terminal.
+```{bash, eval = FALSE}
+scp anterior1_cluster3.rds username@tadpole.genomecenter.ucdavis.edu:/share/workshop/Spatial_Workshop/username/
 ```
 
-Take a few minutes to play around with the available metadata and visualization functions to explore relationships of interest in the data.
-
-
-```{r}
-p1 <- DimPlot(experiment.merged,
-        reduction = "umap",
-        group.by = "SCT_snn_res.0.2",
-        shuffle = TRUE) +
-  scale_color_manual(values = res.0.2.palette) +
-  guides(color = "none") +
-  theme(plot.title = element_blank()) 
-p2 <- SpatialDimPlot(experiment.merged,
-               group.by = "SCT_snn_res.0.2",
-               images = c("Posterior_1")) +
-  scale_fill_manual(values = res.0.2.palette) +
-  guides(fill = "none")
-
-p1 + p2
+Log into the cluster on the command line, and run the following:
+```{bash, eval = FALSE}
+cd /share/workshop/Spatial_Workshop/$USER
+module load R/4.1.0
+R
 ```
 
-```{r, vis_mito_celltype}
-# unlike VlnPlot and spatial plots, FeatureScatter has issues with the special characters contained in the cell type names
-lapply(cell.types[c(19, 25, 26, 28, 32)], function(id){
-  FeatureScatter(experiment.merged,
-                 feature1 = id,
-                 feature2 = "percent.mito",
-                 group.by = "orig.ident",
-                 shuffle = TRUE) +
-    scale_color_viridis_d() +
-    labs(x = sub("predictionscoreid_", "", id),
-         y = "Percent Mitochondrial")
-})
+This launches an R session on the command line. Notice that the prompt has become the ">" character, rather than the "$" associated with bash.
+```{r, eval=FALSE}
+.libPaths("/share/workshop/Spatial_Workshop/Software")
+library("Seurat")
+anterior1.cluster3 <- readRDS("anterior1_cluster3.rds")
+FindSpatiallyVariableFeatures(anterior1.cluster3)
 ```
 
-## Spatially variable features
-
-Hopefully, at this point, your slurm job will have completed. Run the following code to download the FindSpatiallyVariableFeatures output, replacing "username" with your own username.
-
-```{bash, download_spatial, eval=FALSE}
-scp username@tadpole.genomecenter.ucdavis.edu:share/workshop/spatial_workshop/username/02-Seurat/*_spatiallyVariableFeatures.rds .
-```
-
-If your slurm array is not yet complete, you can download the finished objects from the shared downloads folders instead.
-
-```{bash, download_spatial_shared, eval=FALSE}
-scp username@tadpole.genomecenter.ucdavis.edu:/share/workshop/spatial_workshop/data_analysis/R/*_spatiallyVariableFeatures.rds .
-```
 
 The results of FindSpatiallyVariableFeatures can be accessed with the SVFInfo (produces a table of scores) or SpatiallyVariableFeatures (produces a list of genes, in order of decreasing spatial variability).
 
@@ -443,7 +344,7 @@ lapply(experiment.slices, function(slice){
 
 lapply(experiment.slices, function(slice){
   lapply(SpatiallyVariableFeatures(slice)[1:5], function(feature){
-    SpatialFeaturePlot(slice, features = feature) 
+    SpatialFeaturePlot(slice, features = feature)
   })
 })
 
@@ -474,6 +375,89 @@ SpatialFeaturePlot(example.cluster5,
 SpatialFeaturePlot(example.cluster5,
                    slot = "data",
                    features = SpatiallyVariableFeatures(example.cluster5)[2])
+```
+
+
+## Cell type prediction and "deconvolution"
+
+Each spot on a Visium slide may incorporate one or more cell types, depending on the placement. Instead of attempting to assign a single cell type to each spot, the Seurat integration method calculates a prediction score for each cell type based on the expression profiles from a single cell dataset.
+
+The Allen Brain Atlas has a comprehensive collection of [publicly available single cell data sets](https://portal.brain-map.org/atlases-and-data/rnaseq). For this experiment, we have selected a small number of cells corresponding to cell types present in the slices. This subsetting was necessary in order to create a reference set that will run quickly with limited resources.
+
+```{r, atlas}
+atlas <- readRDS(paste(dataset.loc, "allen_subset_atlas.rds", sep = "/"))
+atlas <- SCTransform(atlas, verbose = FALSE)
+atlas <- RunPCA(atlas, verbose = FALSE)
+atlas <- RunUMAP(atlas, dims = 1:30, verbose = FALSE)
+anchors <- FindTransferAnchors(reference = atlas,
+                               query = experiment.merged,
+                               normalization.method = "SCT")
+predictions <- TransferData(anchorset = anchors,
+                            refdata = atlas$cell_type_alias_label,
+                            prediction.assay = TRUE,
+                            weight.reduction = experiment.merged[["pca"]],
+                            dims = 1:30)
+experiment.merged[["predictions"]] <- predictions
+
+cell.types <- rownames(GetAssayData(experiment.merged, assay = "predictions"))
+cell.types
+# visualize cell type predictions on slices
+lapply(cell.types[c(1, 7, 19, 25, 26, 28, 32)], function(id){
+  SpatialFeaturePlot(experiment.merged, id)
+})
+rm(atlas, anchors, predictions)
+```
+
+Take a few minutes to explore the results of the cell type prediction. A graphical view of the Allen Atlas is available [here](https://celltypes.brain-map.org/rnaseq/mouse_ctx-hpf_10x?selectedVisualization=Heatmap&colorByFeature=Cell+Type&colorByFeatureValue=Gad1).
+
+
+
+```{r, vis_cluster_celltype}
+lapply(cell.types[c(1, 7, 19, 25, 26, 28, 32)], function(id){
+  VlnPlot(experiment.merged,
+          features = id,
+          group.by = "SCT_snn_res.0.2",
+          pt.size = 0) +
+    scale_fill_viridis_d(option = "turbo") +
+    guides(fill = "none") +
+    labs(x = "Cluster",
+         y = "Prediction Score",
+         title = sub("predictionscoreid_", "", id))
+})
+```
+
+Take a few minutes to play around with the available metadata and visualization functions to explore relationships of interest in the data.
+
+
+```{r}
+p1 <- DimPlot(experiment.merged,
+        reduction = "umap",
+        group.by = "SCT_snn_res.0.2",
+        shuffle = TRUE) +
+  scale_color_manual(values = res.0.2.palette) +
+  guides(color = "none") +
+  theme(plot.title = element_blank())
+p2 <- SpatialDimPlot(experiment.merged,
+               group.by = "SCT_snn_res.0.2",
+               images = c("Posterior_1")) +
+  scale_fill_manual(values = res.0.2.palette) +
+  guides(fill = "none")
+
+p1 + p2
+```
+
+```{r, vis_mito_celltype}
+# unlike VlnPlot and spatial plots, FeatureScatter has issues with the special characters contained in the cell type names
+lapply(cell.types[c(19, 25, 26, 28, 32)], function(id){
+  FeatureScatter(experiment.merged,
+                 feature1 = id,
+                 feature2 = "percent.mito",
+                 group.by = "orig.ident",
+                 shuffle = TRUE) +
+    scale_color_viridis_d() +
+    labs(x = sub("predictionscoreid_", "", id),
+         y = "Percent Mitochondrial")
+})
 ```
 
 # Session information
