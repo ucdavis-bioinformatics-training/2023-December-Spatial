@@ -299,82 +299,34 @@ Spatially variable features are genes for which the spatial coordinates (i.e. lo
 
 FindSpatiallyVariableFeatures should only be run on spots belonging to the same slice, as calculating spatial variability across discontiguous tissue will produce artifacts and errors. Expression profiles vary widely across the mouse brain sagittal slices used in this experiment. To identify variation of interest (and run the algorithm in a timely manner), we can select one or more groups of spots corresponding to anatomical structures to interrogate for spatially variable features.
 
-Users are reporting issues with Seurat5's FindSpatiallVariableFeatures() function, so we will be reverting to Seurat version 4 for this section of the analysis. In order to avoid managing two installations of Seurat in the same session, we will run Seurat 4 on tadpole.
-
-```{r, SpatiallyVariable.1}
+```{r, SpatiallyVariable}
 # subset object to slice and cluster of interest
 anterior1.cluster3 <- subset(experiment.merged, sample.ident == "Anterior_1" & SCT_snn_res.0.3 == "3")
 # remove extra images
 anterior1.cluster3@images[2:4] <- NULL
-# save object
-saveRDS(anterior1.cluster3, file = "anterior1_cluster3.rds")
+# find spatially variable features
+anterior1.cluster3 <- FindSpatiallyVariableFeatures(anterior1.cluster3,
+                                                    assay = "SCT",
+                                                    slot = "scale.data",
+                                                    features = VariableFeatures(anterior1.cluster3),
+                                                    selection.method = "markvariogram")
 ```
-
-Transfer the saved object to the tadpole. Don't forget to change "username" to your username. You may need to paste the command below into a new terminal.
-```{bash, eval = FALSE}
-scp anterior1_cluster3.rds username@tadpole.genomecenter.ucdavis.edu:/share/workshop/Spatial_Workshop/username/
-```
-
-Log into the cluster on the command line, and run the following:
-```{bash, eval = FALSE}
-cd /share/workshop/Spatial_Workshop/$USER
-module load R/4.1.0
-R
-```
-
-This launches an R session on the command line. Notice that the prompt has become the ">" character, rather than the "$" associated with bash.
-```{r, eval=FALSE}
-.libPaths("/share/workshop/Spatial_Workshop/Software")
-library("Seurat")
-anterior1.cluster3 <- readRDS("anterior1_cluster3.rds")
-FindSpatiallyVariableFeatures(anterior1.cluster3)
-```
-
 
 The results of FindSpatiallyVariableFeatures can be accessed with the SVFInfo (produces a table of scores) or SpatiallyVariableFeatures (produces a list of genes, in order of decreasing spatial variability).
 
 ```{r, vis_top_spatial}
-experiment.slices <- lapply(unique(experiment.merged$orig.ident), function(sample){
-  readRDS(paste0(sample, "_spatiallyVariableFeatures.rds"))
-})
-names(experiment.slices) <- unique(experiment.merged$orig.ident)
-lapply(experiment.slices, function(slice){
-  SpatialFeaturePlot(slice, features = SpatiallyVariableFeatures(slice)[1:5])
-})
+svf.rank <- anterior1.cluster3@assays$SCT@meta.features[order(anterior1.cluster3@assays$SCT@meta.features$markvariogram.spatially.variable.rank),]
+svf.rank[1:10,]
 
-lapply(experiment.slices, function(slice){
-  lapply(SpatiallyVariableFeatures(slice)[1:5], function(feature){
-    SpatialFeaturePlot(slice, features = feature)
-  })
+lapply(rownames(svf.rank)[1:10], function(feature){
+    SpatialFeaturePlot(anterior1.cluster3, features = feature, crop = FALSE)
 })
 
-experiment.slices[[1]]@assays$SCT@meta.features[!(is.na(experiment.slices[[1]]@assays$SCT@meta.features$markvariogram.spatially.variable.rank)),]
-
-
-example <- readRDS("Anterior_1_spatiallyVariableFeatures.rds")
-example <- FindNeighbors(example)
-example <- FindClusters(example)
-DimPlot(example, reduction = "umap")
-SpatialDimPlot(example)
-example.cluster5 <- subset(example, seurat_clusters == "5")
-DefaultAssay(example.cluster5) <- "Spatial"
-example.cluster5[["SCT"]] <- NULL
-example.cluster5[["predictions"]] <- NULL
-str(example.cluster5@assays)
-example.cluster5 <- SCTransform(example.cluster5,
-                                assay = "Spatial")
-str(example.cluster5@assays)
-example.cluster5 <- RunPCA(example.cluster5)
-example.cluster5 <- RunUMAP(example.cluster5, dims = 1:30)
-example.cluster5 <- FindSpatiallyVariableFeatures(example.cluster5,
-                                                  assay = "SCT",
-                                                  features = VariableFeatures(example.cluster5),
-                                                  selection.method = "markvariogram")
-SpatialFeaturePlot(example.cluster5,
-                          features = SpatiallyVariableFeatures(example.cluster5)[1])
-SpatialFeaturePlot(example.cluster5,
-                   slot = "data",
-                   features = SpatiallyVariableFeatures(example.cluster5)[2])
+lapply(rownames(svf.rank)[c(1,5:7,10)], function(feature){
+  SpatialFeaturePlot(experiment.merged,
+                     features = feature,
+                     images = c("Anterior_1", "Anterior_2"))
+})
 ```
 
 
