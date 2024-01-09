@@ -37,11 +37,18 @@ if (!any(rownames(installed.packages()) == "viridis")){
 if (!any(rownames(installed.packages()) == "patchwork")){
   BiocManager::install("patchwork")
 }
+if(!any(rownames(installed.packages()) == "devtools")) {
+  install.packages("devtools")
+}
+if(!any(rownames(installed.packages()) == "spacexr")) {
+  devtools::install_github("dmcable/spacexr", build_vignettes = FALSE)
+}
 library(knitr)
 library(Seurat)
 library(ggplot2)
 library(viridis)
 library(patchwork)
+library(spacexr)
 ```
 
 # Experiment set-up
@@ -299,6 +306,10 @@ Spatially variable features are genes for which the spatial coordinates (i.e. lo
 
 FindSpatiallyVariableFeatures should only be run on spots belonging to the same slice, as calculating spatial variability across discontiguous tissue will produce artifacts and errors. Expression profiles vary widely across the mouse brain sagittal slices used in this experiment. To identify variation of interest (and run the algorithm in a timely manner), we can select one or more groups of spots corresponding to anatomical structures to interrogate for spatially variable features.
 
+Here we select cluster 3, which appears to correspond roughly to the striatum (in blue, below).
+
+![Allen Mouse Brain Atlas (Sagittal), image 13 of 21 zoom: 12.5%](figures/Sagittal_striatum_image13_zoom12.5.jpg)
+
 ```{r, SpatiallyVariable}
 # subset object to slice and cluster of interest
 anterior1.cluster3 <- subset(experiment.merged, sample.ident == "Anterior_1" & SCT_snn_res.0.3 == "3")
@@ -312,32 +323,94 @@ anterior1.cluster3 <- FindSpatiallyVariableFeatures(anterior1.cluster3,
                                                     selection.method = "markvariogram")
 ```
 
-The results of FindSpatiallyVariableFeatures can be accessed with the SVFInfo (produces a table of scores) or SpatiallyVariableFeatures (produces a list of genes, in order of decreasing spatial variability).
+The SVFInfo and SpatiallyVariableFeatures functions, designed to access the slot modified by FindSpatiallyVariableFeatures, are producing errors, but addressing the slot directly produces results. There are [a number of open issues](https://github.com/satijalab/seurat/issues?q=is%3Aissue+is%3Aopen+findspatiallyvariablefeatures) in the Seurat 5 GitHub repository pertaining to FindSpatiallyVariableFeatures, so I expect that future updates will address the problem.
 
-```{r, vis_top_spatial}
-svf.rank <- anterior1.cluster3@assays$SCT@meta.features[order(anterior1.cluster3@assays$SCT@meta.features$markvariogram.spatially.variable.rank),]
+```{r, top_spatial}
+svf.rank <- anterior1.cluster3@assays$SCT@meta.features
+svf.rank <- svf.rank[order(svf.rank$markvariogram.spatially.variable.rank),]
+svf.rank <- svf.rank[1:length(which(svf.rank$markvariogram.spatially.variable)),]
 svf.rank[1:10,]
+```
 
-lapply(rownames(svf.rank)[1:10], function(feature){
+Visualizing the expression with SpatialFeaturePlot can provide a dramatic illustration of variation across the selected region.
+```{r, vis_top_spatial_cluster3}
+lapply(rownames(svf.rank)[c(1,3,5,8)], function(feature){
     SpatialFeaturePlot(anterior1.cluster3, features = feature, crop = FALSE)
 })
+```
 
-lapply(rownames(svf.rank)[c(1,5:7,10)], function(feature){
+However, expanding the view to include the entire tissue section reveals that some of the variation appears to be primarily influenced by expression in neighboring regions.
+```{r, vis_top_spatial_all}
+lapply(rownames(svf.rank)[c(1,3,5,8)], function(feature){
   SpatialFeaturePlot(experiment.merged,
                      features = feature,
                      images = c("Anterior_1", "Anterior_2"))
 })
+rm(anterior1.cluster3)
 ```
-
 
 ## Cell type prediction and "deconvolution"
 
-Each spot on a Visium slide may incorporate one or more cell types, depending on the placement. Instead of attempting to assign a single cell type to each spot, the Seurat integration method calculates a prediction score for each cell type based on the expression profiles from a single cell dataset.
+Each spot on a Visium slide may incorporate one or more cell types, depending on the placement. Under the previous version of Seurat (4.4.0), the recommended method for cell type detection was integration. Instead of attempting to assign a single cell type to each spot, the Seurat 4 integration method calculated a prediction score for each cell type based on the expression profiles from a single cell data set. This methodology is still available (in version 5), but the authors now recommend using [Robust Cell Type Decomposition](https://www.nature.com/articles/s41587-021-00830-w)(RCTD).
 
-The Allen Brain Atlas has a comprehensive collection of [publicly available single cell data sets](https://portal.brain-map.org/atlases-and-data/rnaseq). For this experiment, we have selected a small number of cells corresponding to cell types present in the slices. This subsetting was necessary in order to create a reference set that will run quickly with limited resources.
+The spacexr library installed at the beginning of this session supports RCTD. Here we use the spacexr function SpatialRNA to create an object containing counts data and centroid coordinates for each spot.
+
+```{r, create_query}
+experiment.slices <- experiment.merged
+DefaultAssay(experiment.slices) <- "Spatial"
+experiment.slices <- split(experiment.slices, f = experiment.slices$sample.ident)
+queries <- lapply(seq_along(Layers(experiment.slices)), function(i){
+  coords = GetTissueCoordinates(experiment.slices, image = names(experiment.slices@images)[i], which = "centroids")
+  counts = GetAssayData(experiment.slices, assay = "Spatial", layer = Layers(experiment.slices)[i])
+  SpatialRNA(coords = coords, counts = counts, nUMI = colSums(counts))
+})
+```
+
+The Allen Brain Atlas has a comprehensive collection of [publicly available single cell data sets](https://portal.brain-map.org/atlases-and-data/rnaseq). For this experiment, we have selected a small number of cells corresponding to cell types present in the slices. This subsetting was necessary in order to create a reference set that will run quickly with limited resources. The Seurat object containing the atlas was created under Seurat 4 and must be updated to Seurat 5 prior to continuing with the workflow. The spacexr reference is then created from the atlas object.
+
+```{r, create_reference}
+atlas <- readRDS(paste(dataset.loc, "allen_subset_atlas.rds", sep = "/"))
+atlas <- UpdateSeuratObject(atlas)
+# RCTD requires a minimum of 25 cells per type. drop types with fewer cells.
+atlas <- atlas[,!(atlas$cell_type_accession_label %in% names(which(table(atlas$cell_type_accession_label) < 25)))]
+# alias labels (most readable) contain some special characters. create conversion table
+atlas.labels <- atlas@meta.data[!duplicated(atlas$cell_type_alias_label),c("cell_type_accession_label", "cell_type_alias_label")]
+rownames(atlas.labels) <- NULL
+reference <- Reference(counts = GetAssayData(atlas, assay = "RNA", layer = "counts"),
+                       cell_types = as.factor(atlas$cell_type_accession_label),
+                       nUMI = atlas$nCount_RNA)
+```
+
+Once both the query (Visium) and reference (atlas) objects have been create, we can run the decomposition itself. This is more computationally intensive than earlier steps and can be run on more than one core to improve speed.
+
+```{r, RCTD}
+RCTD.list <- lapply(queries, function(query){
+  RCTD = create.RCTD(query, reference, max_cores = 8)
+  RCTD = run.RCTD(RCTD, doublet_mode = "doublet")
+})
+
+```
+
+
+```{r, predictions}
+# add results from each slice to metadata table
+sapply(RCTD.list, function(slice){
+  annotations = atlas.labels$cell_type_alias_label[match(slice@results$results_df$first_type, atlas.labels$cell_type_accession_label)]
+  names(annotation) = rownames(slice@results$results_df)
+  annotations
+})
+
+annotations <- atlas.labels$cell_type_alias_label[match(RCTD@results$results_df$first_type, atlas.labels$cell_type_accession_label)]
+names(annotations) <- rownames(RCTD@results$results_df)
+experiment.merged$predicted.cell_type <- annotations
+
+SpatialDimPlot(experiment.merged,
+               group.by = "predicted.cell_type")
+table(experiment.merged$predicted.cell_type)
+length(which(is.na(experiment.merged$predicted.cell_type)))
+```
 
 ```{r, atlas}
-atlas <- readRDS(paste(dataset.loc, "allen_subset_atlas.rds", sep = "/"))
 atlas <- SCTransform(atlas, verbose = FALSE)
 atlas <- RunPCA(atlas, verbose = FALSE)
 atlas <- RunUMAP(atlas, dims = 1:30, verbose = FALSE)
