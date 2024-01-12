@@ -9,6 +9,8 @@ navigation:
   - heading: Support
   - title: Scripts
     url: software_scripts/scripts_links
+  - title: GitHub
+    url: https://github.com/ucdavis-bioinformatics-training/2023-December-Spatial
 
   - heading: Spatial Transcriptomics
   - title: Generating Expression Matrix
