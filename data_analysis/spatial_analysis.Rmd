@@ -461,13 +461,31 @@ VlnPlot(experiment.merged,
         features = "Tnnt1") +
   scale_fill_manual(values = celltype.palette)
 ```
+
+```{r}
+rm(annotations, annotations.list, atlas, atlas.labels, experiment.slices, queries, reference, RCTD, RCTD.list)
+```
+
+
 ### Build "niches"
 
-Seurat 5 introduces the concept of "niches," which organize cells by both cell type composition and spatial adjacency. While the clustering performed earlier relies on a network constructed on transcriptional similarity (via the PCA dimensionality reduction), niche-building uses a network describing the cell type identities of each spot's *spatial* neighbors. Then, k-means clustering identifies spots that have similar neighbors as members of the same "spatial niche."
+Seurat 5 introduces the concept of "niches," which organize cells by both cell type composition and spatial adjacency. While the clustering performed earlier relies on a network constructed on transcriptional similarity (via the PCA dimensionality reduction), niche-building uses a network describing the cell type identities of each spot's *spatial* neighbors. Then, k-means clustering identifies spots that have similar neighbors as members of the same "spatial niche." Like other functions that use spatial coordinates, BuildNicheAssay() produces errors if performed on multiple slices. At the moment it is simplest to subset the object to a single slice before creating the field of view object. See [Issue #8126](https://github.com/satijalab/seurat/issues/8126) for details.
 
 ```{r, BuildNicheAssay}
-
+anterior1 <- subset(experiment.merged, sample.ident == "Anterior_1")
+anterior1@images[2:4] <- NULL
+anterior1[["fov"]] <- CreateFOV(coords = GetTissueCoordinates(anterior1, which = "centroids"),
+                                type = "centroids")
+anterior1 <- BuildNicheAssay(object = anterior1, fov = "fov", group.by = "predicted.celltype")
+celltype.plot <- ImageDimPlot(object = anterior1, group.by = "predicted.celltype", size = 1.5, cols = celltype.palette, dark.background = FALSE)
+niche.plot <- ImageDimPlot(object = anterior1, group.by = "niches", size = 1.5, cols = viridis(length(unique(anterior1$niches))), dark.background = FALSE)
+celltype.plot + niche.plot
 ```
+As with clustering, the resolution of niche building can be tuned to suit the biology of the tissue, in this case using the neighbors.k and niches.k.
+
+The niche classification, which incorporates both transcriptional information (through cell type assignment) and spatial information (adjacency), may do a better job of representing the functional and biological divisions present in a tissue slice that the clustering performed earlier.
+
+## Further exploratory visualizations
 
 In addition to the gene expression data, we can plot relationships between continuous metadata and cluster, niche, or cell type assignment.
 
@@ -480,9 +498,10 @@ VlnPlot(experiment.merged,
         group.by = "SCT_snn_res.0.3",
         features = "percent.mito") +
   scale_fill_manual(values = cluster.palette)
+ggplot(data = anterior1@meta.data, mapping = aes(x = niches, fill = predicted.celltype)) + geom_bar() + scale_fill_manual(values = celltype.palette) + theme_classic()
 ```
 
-# Session information
+## Session information
 
 ```{r}
 sessionInfo()
