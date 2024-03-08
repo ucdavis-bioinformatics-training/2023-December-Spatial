@@ -40,6 +40,12 @@ For an in-depth explanation of Space Ranger methods, visit the [10x Genomics doc
 
 ## Set-up
 
+Log into tadpole (don't forget to replace "username" with your username):
+
+```bash
+ssh username@tadpole.genomecenter.ucdavis.edu
+```
+
 Set up your directory:
 
 ```bash
